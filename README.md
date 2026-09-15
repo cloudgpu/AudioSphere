@@ -4,6 +4,8 @@ A stunning **macOS native** audio effects app built with **SwiftUI** and
 **AVFoundation**, following Apple's Human Interface Guidelines with native
 glass/vibrancy materials.
 
+![AudioSphere screenshot](docs/screenshot.png)
+
 ## Features
 
 - **Reverb** — 7 factory presets (Small/Medium/Large Room, Medium/Large Hall,

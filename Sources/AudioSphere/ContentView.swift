@@ -1,8 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import AVFoundation
 
 struct ContentView: View {
     @EnvironmentObject var audioEngine: AudioEngine
+    @State private var isFileImporterPresented = false
 
     var body: some View {
         HSplitView {
@@ -12,16 +14,16 @@ struct ContentView: View {
 
             // MARK: - Main content
             VStack(spacing: 0) {
-                HeaderView()
+                HeaderView(fileName: audioEngine.currentFileName)
 
                 ZStack {
-                    // Now capturing visualisation
+                    // Now playing visualisation
                     NowPlayingView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     // Floating effects card
                     VStack(spacing: 24) {
-                        CaptureControlsView()
+                        TransportControlsView()
                         EffectsPanelView()
                     }
                     .padding(28)
@@ -35,14 +37,20 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    audioEngine.toggleCapture()
+                    isFileImporterPresented = true
                 } label: {
-                    Label(
-                        audioEngine.isCapturing ? "Stop Capture" : "Start Capture",
-                        systemImage: audioEngine.isCapturing ? "stop.circle.fill" : "record.circle"
-                    )
+                    Label("Open Audio", systemImage: "folder")
                 }
-                .help(audioEngine.isCapturing ? "Stop capturing system audio" : "Start capturing system audio")
+                .help("Open an audio file")
+            }
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.audio],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                audioEngine.load(url: url)
             }
         }
     }
@@ -54,14 +62,12 @@ struct LibrarySidebarView: View {
 
     var body: some View {
         List {
-            Label("AudioSphere", systemImage: "music.note.list")
+            Label("Library", systemImage: "music.note.list")
                 .font(.title3.weight(.semibold))
                 .listRowSeparator(.hidden)
 
-            Label("System Audio", systemImage: "speaker.wave.2.fill")
-                .foregroundStyle(audioEngine.isCapturing ? Color.accentColor : Color.secondary)
-            Label("Reverb", systemImage: "waveform.badge.plus")
-                .foregroundStyle(audioEngine.reverbEnabled ? Color.accentColor : Color.secondary)
+            Label("Recently Played", systemImage: "clock")
+            Label("Favorites", systemImage: "heart")
             Label("3D Sound", systemImage: "wave.3.right")
                 .foregroundStyle(audioEngine.spatialEnabled ? Color.accentColor : Color.secondary)
             Label("Surround", systemImage: "speaker.wave.3.fill")
@@ -74,14 +80,14 @@ struct LibrarySidebarView: View {
 
 // MARK: - Header
 struct HeaderView: View {
-    @EnvironmentObject var audioEngine: AudioEngine
+    let fileName: String
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text("AudioSphere")
                     .font(.system(.title2, design: .rounded).weight(.bold))
-                Text(audioEngine.statusMessage)
+                Text(fileName)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -94,30 +100,67 @@ struct HeaderView: View {
     }
 }
 
-// MARK: - Capture controls
-struct CaptureControlsView: View {
+// MARK: - Transport controls
+struct TransportControlsView: View {
     @EnvironmentObject var audioEngine: AudioEngine
+
+    private func format(_ t: TimeInterval) -> String {
+        guard t.isFinite else { return "00:00" }
+        let m = Int(t) / 60
+        let s = Int(t) % 60
+        return String(format: "%02d:%02d", m, s)
+    }
 
     var body: some View {
         VStack(spacing: 12) {
-            Button(action: { audioEngine.toggleCapture() }) {
-                Label(
-                    audioEngine.isCapturing ? "Stop Capture" : "Start Capture",
-                    systemImage: audioEngine.isCapturing ? "stop.circle.fill" : "record.circle.fill"
+            // Progress slider
+            HStack(spacing: 10) {
+                Text(format(audioEngine.currentTime))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Slider(
+                    value: Binding(
+                        get: { audioEngine.currentTime },
+                        set: { audioEngine.seek(to: $0) }
+                    ),
+                    in: 0...max(audioEngine.duration, 0.01)
                 )
-                .font(.system(size: 40))
-                .symbolRenderingMode(.hierarchical)
+                Text(format(audioEngine.duration))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .help(audioEngine.isCapturing ? "Stop" : "Start")
 
-            if let error = audioEngine.captureError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
+            HStack(spacing: 28) {
+                Button(action: {}) {
+                    Image(systemName: "backward.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .disabled(true)
+
+                Button(action: { audioEngine.togglePlayPause() }) {
+                    Image(systemName: audioEngine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 44))
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .help(audioEngine.isPlaying ? "Pause" : "Play")
+
+                Button(action: { audioEngine.stop() }) {
+                    Image(systemName: "stop.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .help("Stop")
+
+                Button(action: {}) {
+                    Image(systemName: "forward.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .disabled(true)
             }
+            .padding(.top, 4)
         }
         .glassCard()
     }
@@ -157,34 +200,45 @@ struct EffectsPanelView: View {
 
             Divider()
 
-            // Spatial / Pan
+            // 3D / Spatial
             HStack(alignment: .center) {
                 Toggle("", isOn: $audioEngine.spatialEnabled)
                     .labelsHidden()
                 Image(systemName: "wave.3.right")
                     .foregroundStyle(audioEngine.spatialEnabled ? Color.accentColor : Color.secondary)
-                Text("3D Pan")
+                Text("3D Sound")
                     .frame(width: 60, alignment: .leading)
-                Slider(value: $audioEngine.pan, in: -1...1)
-                    .disabled(!audioEngine.spatialEnabled)
-                Text(panLabel)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(width: 40, alignment: .trailing)
-            }
 
-            // Surround
-            HStack(alignment: .center) {
+                // Surround
                 Toggle("", isOn: $audioEngine.surroundEnabled)
                     .labelsHidden()
                 Image(systemName: "speaker.wave.3.fill")
                     .foregroundStyle(audioEngine.surroundEnabled ? Color.accentColor : Color.secondary)
                 Text("Surround")
-                    .frame(width: 60, alignment: .leading)
-                Slider(value: $audioEngine.surroundWidth, in: 0.5...3.0)
-                    .disabled(!audioEngine.surroundEnabled)
-                Text(String(format: "%.1f", audioEngine.surroundWidth))
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(width: 40, alignment: .trailing)
+                    .frame(width: 70, alignment: .leading)
+
+                Spacer()
+            }
+
+            // Surround orbit controls
+            if audioEngine.surroundEnabled {
+                HStack(spacing: 16) {
+                    Text("Angle")
+                        .frame(width: 40, alignment: .leading)
+                    Slider(value: $audioEngine.surroundAngle, in: -180...180)
+                        .disabled(!audioEngine.surroundEnabled)
+                    Text("\(Int(audioEngine.surroundAngle))°")
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(width: 40, alignment: .trailing)
+
+                    Text("Distance")
+                        .frame(width: 60, alignment: .leading)
+                    Slider(value: $audioEngine.surroundDistance, in: 0.5...10)
+                        .disabled(!audioEngine.surroundEnabled)
+                    Text(String(format: "%.1f", audioEngine.surroundDistance))
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(width: 40, alignment: .trailing)
+                }
             }
 
             Divider()
@@ -198,32 +252,24 @@ struct EffectsPanelView: View {
         }
         .glassCard()
     }
-
-    private var panLabel: String {
-        switch audioEngine.pan {
-        case ..<(-0.33): return "L"
-        case -0.33...0.33: return "C"
-        default: return "R"
-        }
-    }
 }
 
-// MARK: - Now capturing visualisation
+// MARK: - Now playing visualisation
 struct NowPlayingView: View {
     @EnvironmentObject var audioEngine: AudioEngine
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: audioEngine.isCapturing ? "waveform" : "speaker.wave.2")
+            Image(systemName: audioEngine.isPlaying ? "waveform" : "music.note")
                 .font(.system(size: 64))
-                .symbolEffect(.pulse, isActive: audioEngine.isCapturing)
+                .symbolEffect(.pulse, isActive: audioEngine.isPlaying)
                 .foregroundStyle(.tint)
 
-            Text(audioEngine.isCapturing ? "Capturing System Audio" : "System Audio")
+            Text(audioEngine.currentFileName)
                 .font(.title3.weight(.medium))
                 .foregroundStyle(.primary)
 
-            Text(audioEngine.isCapturing ? "Effects Applied in Real Time" : "Press Start to capture the default audio sink")
+            Text(audioEngine.isPlaying ? "Now Playing" : "Ready")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
