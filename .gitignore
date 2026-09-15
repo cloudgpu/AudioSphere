@@ -1,0 +1,16 @@
+# Swift Package Manager build artifacts
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Vim swap files
+*.swp
+
